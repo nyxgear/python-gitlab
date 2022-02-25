@@ -62,6 +62,7 @@ class Gitlab:
         self,
         url: Optional[str] = None,
         private_token: Optional[str] = None,
+        deploy_token: Optional[str] = None,
         oauth_token: Optional[str] = None,
         job_token: Optional[str] = None,
         ssl_verify: Union[bool, str] = True,
@@ -92,6 +93,7 @@ class Gitlab:
         self.ssl_verify = ssl_verify
 
         self.private_token = private_token
+        self.deploy_token = deploy_token
         self.http_username = http_username
         self.http_password = http_password
         self.oauth_token = oauth_token
@@ -243,6 +245,7 @@ class Gitlab:
         return cls(
             config.url,
             private_token=config.private_token,
+            deploy_token=config.deploy_token,
             oauth_token=config.oauth_token,
             job_token=config.job_token,
             ssl_verify=config.ssl_verify,
@@ -296,11 +299,12 @@ class Gitlab:
             or os.getenv("CI_SERVER_URL")
             or gitlab.const.DEFAULT_URL
         )
-        private_token, oauth_token, job_token = cls._merge_auth(options, config)
+        private_token, oauth_token, job_token, deploy_token = cls._merge_auth(options, config)
 
         return cls(
             url=url,
             private_token=private_token,
+            deploy_token=deploy_token,
             oauth_token=oauth_token,
             job_token=job_token,
             ssl_verify=options.get("ssl_verify") or config.ssl_verify,
@@ -324,19 +328,22 @@ class Gitlab:
         CI-provided values are both available.
         """
         private_token = options.get("private_token") or config.private_token
+        deploy_token = options.get("deploy_token") or config.deploy_token
         oauth_token = options.get("oauth_token") or config.oauth_token
         job_token = (
             options.get("job_token") or config.job_token or os.getenv("CI_JOB_TOKEN")
         )
 
         if private_token:
-            return (private_token, None, None)
+            return (private_token, None, None, None)
         if oauth_token:
-            return (None, oauth_token, None)
+            return (None, oauth_token, None, None)
         if job_token:
-            return (None, None, job_token)
+            return (None, None, job_token, None)
+        if deploy_token:
+            return (None, None,  None, deploy_token)
 
-        return (None, None, None)
+        return (None, None, None, None)
 
     def auth(self) -> None:
         """Performs an authentication using private token.
@@ -462,7 +469,7 @@ class Gitlab:
     def _set_auth_info(self) -> None:
         tokens = [
             token
-            for token in [self.private_token, self.oauth_token, self.job_token]
+            for token in [self.private_token, self.deploy_token, self.oauth_token, self.job_token]
             if token
         ]
         if len(tokens) > 1:
@@ -488,14 +495,21 @@ class Gitlab:
             self.headers["PRIVATE-TOKEN"] = self.private_token
             self.headers.pop("JOB-TOKEN", None)
 
+        if self.deploy_token:
+            self.headers.pop("Authorization", None)
+            self.headers["DEPLOY-TOKEN"] = self.deploy_token
+            self.headers.pop("JOB-TOKEN", None)
+
         if self.oauth_token:
             self.headers["Authorization"] = f"Bearer {self.oauth_token}"
             self.headers.pop("PRIVATE-TOKEN", None)
+            self.headers.pop("DEPLOY-TOKEN", None)
             self.headers.pop("JOB-TOKEN", None)
 
         if self.job_token:
             self.headers.pop("Authorization", None)
             self.headers.pop("PRIVATE-TOKEN", None)
+            self.headers.pop("DEPLOY-TOKEN", None)
             self.headers["JOB-TOKEN"] = self.job_token
 
         if self.http_username:
